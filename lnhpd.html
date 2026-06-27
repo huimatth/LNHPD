@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HC Licensed Natural Health Products Database</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* ── Design tokens ── */
+        :root {
+            --blue-deep:   #1A3A5C;
+            --blue-mid:    #2356A0;
+            --teal:        #2A7F8F;
+            --teal-light:  #E6F4F6;
+            --grey-50:     #F7F8FA;
+            --grey-100:    #EDEEF1;
+            --grey-300:    #C4C8D0;
+            --grey-500:    #7B828F;
+            --grey-900:    #1C1F26;
+            --white:       #FFFFFF;
+            --danger:      #C0392B;
+            --radius:      6px;
+            --shadow-sm:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+            --shadow-md:   0 4px 12px rgba(0,0,0,.10);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--grey-50);
+            color: var(--grey-900);
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Top bar ── */
+        header {
+            background: var(--blue-deep);
+            color: var(--white);
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow-md);
+        }
+        .header-flag {
+            width: 36px;
+            height: 24px;
+            flex-shrink: 0;
+            border-radius: 2px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,.15);
+            object-fit: cover;
+        }
+        header h1 {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: .01em;
+        }
+        header .subtitle {
+            font-size: 12px;
+            color: rgba(255,255,255,.6);
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        /* ── Layout ── */
+        main {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+
+        /* ── Filter card ── */
+        .filter-card {
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 16px;
+        }
+        .filter-card h2 {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--grey-500);
+            margin-bottom: 14px;
+        }
+        .filter-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex: 1 1 220px;
+        }
+        .filter-group label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--grey-500);
+        }
+        .filter-group input {
+            height: 38px;
+            border: 1px solid var(--grey-300);
+            border-radius: var(--radius);
+            padding: 0 12px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--grey-900);
+            transition: border-color .15s, box-shadow .15s;
+            background: var(--white);
+        }
+        .filter-group input:focus {
+            outline: none;
+            border-color: var(--teal);
+            box-shadow: 0 0 0 3px rgba(42,127,143,.15);
+        }
+        .filter-group input::placeholder { color: var(--grey-300); }
+
+        .filter-actions {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+        button {
+            height: 38px;
+            padding: 0 18px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background .15s, box-shadow .15s;
+            border: none;
+        }
+        .btn-primary {
+            background: var(--teal);
+            color: var(--white);
+        }
+        .btn-primary:hover { background: var(--blue-mid); box-shadow: var(--shadow-sm); }
+        .btn-ghost {
+            background: transparent;
+            color: var(--grey-500);
+            border: 1px solid var(--grey-300);
+        }
+        .btn-ghost:hover { background: var(--grey-50); color: var(--grey-900); }
+
+        /* ── Filter note ── */
+        .filter-note {
+            margin-top: 10px;
+            font-size: 11px;
+            color: var(--grey-500);
+            font-style: italic;
+        }
+
+        /* ── Active filter pills ── */
+        .active-filters {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            min-height: 0;
+        }
+        .filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--teal-light);
+            color: var(--teal);
+            border: 1px solid rgba(42,127,143,.25);
+            border-radius: 100px;
+            padding: 3px 10px 3px 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .filter-pill button {
+            height: auto;
+            width: 16px;
+            height: 16px;
+            padding: 0;
+            background: rgba(42,127,143,.2);
+            color: var(--teal);
+            border-radius: 50%;
+            font-size: 11px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .filter-pill button:hover { background: var(--teal); color: var(--white); }
+
+        /* ── Results meta bar ── */
+        .results-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .results-count {
+            font-size: 13px;
+            color: var(--grey-500);
+        }
+        .results-count strong { color: var(--grey-900); }
+
+        /* ── Table wrapper ── */
+        .table-wrapper {
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+        .table-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 13px;
+        }
+        thead tr {
+            background: var(--grey-50);
+            border-bottom: 2px solid var(--grey-100);
+        }
+        th {
+            padding: 11px 14px;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            color: var(--grey-500);
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        th:hover { color: var(--teal); }
+        th.sort-asc::after  { content: ' ↑'; color: var(--teal); }
+        th.sort-desc::after { content: ' ↓'; color: var(--teal); }
+
+        tbody tr {
+            border-bottom: 1px solid var(--grey-100);
+            transition: background .1s;
+        }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: var(--teal-light); }
+
+        td {
+            padding: 11px 14px;
+            vertical-align: top;
+            color: var(--grey-900);
+        }
+
+        /* Column-specific styles */
+        .col-licence {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--blue-mid);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .col-licence a {
+            color: var(--blue-mid);
+            text-decoration: none;
+            border-bottom: 1px dashed var(--blue-mid);
+        }
+        .col-licence a:hover {
+            color: var(--teal);
+            border-bottom-color: var(--teal);
+        }
+        /* Skeleton shimmer for lazy-loaded cells */
+        .col-licence a:hover { cursor: pointer; }
+        .cell-loading {
+            display: inline-block;
+            width: 80px;
+            height: 12px;
+            background: linear-gradient(90deg, var(--grey-100) 25%, var(--grey-50) 50%, var(--grey-100) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.2s infinite;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        @keyframes shimmer { to { background-position: -200% 0; } }
+
+        .col-brand { font-weight: 500; }
+        .col-date {
+            white-space: nowrap;
+            color: var(--grey-500);
+            font-size: 12px;
+        }
+        .col-ingredients {
+            max-width: 260px;
+            color: var(--grey-500);
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .col-status {
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-active   { background: #E6F4EA; color: #1E7E34; }
+        .badge-inactive { background: #FDE8E8; color: var(--danger); }
+
+        /* ── Loading state ── */
+        .loading-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 64px 24px;
+            gap: 16px;
+            color: var(--grey-500);
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        .spinner {
+            width: 36px; height: 36px;
+            border: 3px solid var(--grey-100);
+            border-top-color: var(--teal);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-label { font-size: 14px; font-weight: 500; }
+        .loading-sub   { font-size: 12px; color: var(--grey-300); }
+
+        /* ── Empty / error states ── */
+        .state-box {
+            text-align: center;
+            padding: 56px 24px;
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        .state-icon { font-size: 36px; margin-bottom: 12px; }
+        .state-title { font-size: 16px; font-weight: 600; color: var(--grey-900); margin-bottom: 6px; }
+        .state-body  { font-size: 13px; color: var(--grey-500); }
+
+        /* ── Pagination ── */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        .page-btn {
+            height: 32px;
+            min-width: 32px;
+            padding: 0 10px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            color: var(--grey-900);
+            cursor: pointer;
+            transition: all .15s;
+        }
+        .page-btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); }
+        .page-btn.active { background: var(--teal); color: var(--white); border-color: var(--teal); }
+        .page-btn:disabled { opacity: .4; cursor: default; }
+
+        /* ── Detail modal ── */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.45);
+            z-index: 200;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 40px 16px;
+            overflow-y: auto;
+        }
+        .modal {
+            background: var(--white);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-md);
+            width: 100%;
+            max-width: 720px;
+            overflow: hidden;
+            animation: modal-in .15s ease;
+        }
+        @keyframes modal-in { from { opacity:0; transform: translateY(-12px); } to { opacity:1; transform: none; } }
+        .modal-header {
+            background: var(--blue-deep);
+            color: var(--white);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .modal-header h2 { font-size: 15px; font-weight: 600; }
+        .modal-header .modal-id {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: rgba(255,255,255,.6);
+        }
+        .modal-close {
+            background: rgba(255,255,255,.15);
+            border: none;
+            color: var(--white);
+            width: 28px; height: 28px;
+            padding: 0;
+            border-radius: 50%;
+            font-size: 16px;
+            cursor: pointer;
+            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .modal-close:hover { background: rgba(255,255,255,.3); }
+        .modal-body { padding: 20px; }
+        .modal-loading {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 12px; padding: 40px; color: var(--grey-500);
+        }
+        .modal-section { margin-bottom: 20px; }
+        .modal-section:last-child { margin-bottom: 0; }
+        .modal-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--grey-500);
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--grey-100);
+        }
+        .modal-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .modal-field label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--grey-500);
+            margin-bottom: 2px;
+        }
+        .modal-field span {
+            font-size: 13px;
+            color: var(--grey-900);
+        }
+        .modal-field.full-width {
+            grid-column: 1 / -1;
+        }
+        .modal-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .modal-table th {
+            background: var(--grey-50);
+            padding: 7px 10px;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--grey-500);
+            border-bottom: 1px solid var(--grey-100);
+            cursor: default;
+        }
+        .modal-table th:hover { color: var(--grey-500); }
+        .modal-table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid var(--grey-100);
+            color: var(--grey-900);
+            vertical-align: top;
+        }
+        .modal-table tr:last-child td { border-bottom: none; }
+        .modal-error { color: var(--danger); font-size: 13px; padding: 8px 0; }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            header h1 { font-size: 13px; }
+            header .subtitle { display: none; }
+            .filter-row { flex-direction: column; }
+            .filter-actions { width: 100%; }
+            .filter-actions button { flex: 1; }
+            th, td { padding: 9px 10px; }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <img class="header-flag" src="Flag_of_Canada.png" alt="Canadian flag">
+        <h1>Health Canada — Licensed Natural Health Products Database</h1>
+        <span class="subtitle">Licensed Natural Health Products · Updated Regularly</span>
+    </header>
+
+    <main>
+        <div class="filter-card">
+            <h2>Filter results</h2>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="companyFilter">Company name</label>
+                    <input type="text" id="companyFilter" placeholder="e.g. Jamieson">
+                </div>
+                <div class="filter-group">
+                    <label for="ingredientFilter">Medicinal ingredient</label>
+                    <input type="text" id="ingredientFilter" placeholder="e.g. Echinacea">
+                </div>
+                <div class="filter-actions">
+                    <button class="btn-primary" onclick="applyFilters()">Apply</button>
+                    <button class="btn-ghost"   onclick="resetFilters()">Clear</button>
+                </div>
+            </div>
+            <p class="filter-note">Note: filtering by company or ingredient searches across all licensed products and may take a moment to load.</p>
+            <div class="active-filters" id="activePills"></div>
+        </div>
+
+        <div class="results-meta" id="resultsMeta" style="display:none">
+            <span class="results-count" id="resultsCount"></span>
+        </div>
+
+        <div id="table-container"></div>
+        <div class="pagination" id="pagination"></div>
+    </main>
+
+    <div id="modal-root"></div>
+    <script src="lnhpd.js"></script>
+</body>
+</html>
