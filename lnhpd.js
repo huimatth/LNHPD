@@ -4,7 +4,7 @@ let enrichedCache   = {};   // lnhpd_id → enriched product object (cached afte
 let filteredIds     = [];   // lnhpd_ids after filtering
 let currentPage     = 1;
 const PAGE_SIZE     = 25;
-let sortKey         = 'lnhpd_id';
+let sortKey         = 'licence_number';
 let sortDir         = 'desc';
 
 // Tracks which lnhpd_ids have been enriched so we can filter on them
@@ -12,7 +12,7 @@ let enrichedResults = [];   // array of enriched objects for the current filtere
 
 // ── Column definitions ──────────────────────────────────────────────────────
 const COLUMNS = [
-    { key: 'lnhpd_id',           label: 'Licence #',         cls: 'col-licence', modal: true },
+    { key: 'licence_number',      label: 'Licence #',         cls: 'col-licence', modal: true },
     { key: 'product_name',        label: 'Product name',      cls: 'col-brand' },
     { key: 'company_name',        label: 'Company' },
     { key: 'dosage_form',         label: 'Dosage form' },
@@ -39,6 +39,7 @@ async function fetchLicence(lnhpdId) {
         const route   = allProducts.find(p => p.lnhpd_id === lnhpdId);
         const enriched = {
             lnhpd_id:           lnhpdId,
+            licence_number:     licence?.licence_number       || '—',
             product_name:       licence?.product_name_en      || licence?.product_name || '—',
             company_name:       licence?.company_name_en      || licence?.company_name || '—',
             dosage_form:        licence?.dosage_form_en       || licence?.dosage_form  || '—',
@@ -54,6 +55,7 @@ async function fetchLicence(lnhpdId) {
     } catch {
         return {
             lnhpd_id:           lnhpdId,
+            licence_number:     '—',
             product_name:       '—',
             company_name:       '—',
             dosage_form:        '—',
@@ -237,19 +239,20 @@ function toggleSort(key) {
 }
 
 function getSortedIds() {
-    // For lnhpd_id (numeric) we sort the id list directly
+    // lnhpd_id is always available immediately (no enrichment needed) — sort numerically
     if (sortKey === 'lnhpd_id') {
         return sortDir === 'desc'
             ? [...filteredIds].sort((a, b) => b - a)
             : [...filteredIds].sort((a, b) => a - b);
     }
-    // For enriched fields, sort what we have cached; uncached items go to the end
+    // For all enriched fields (including licence_number), sort on cached values;
+    // uncached items fall to the end
     return [...filteredIds].sort((a, b) => {
         const ea = enrichedCache[a];
         const eb = enrichedCache[b];
         const va = ea ? (ea[sortKey] || '') : '';
         const vb = eb ? (eb[sortKey] || '') : '';
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
         return sortDir === 'asc' ? cmp : -cmp;
     });
 }
@@ -314,14 +317,24 @@ function renderTable() {
 
             const isLoaded = !!enrichedCache[id];
 
-            if (col.key === 'lnhpd_id') {
-                // Always render licence number as clickable
+            if (col.key === 'licence_number') {
+                // Show licence_number if enriched, otherwise show a shimmer
                 const a = document.createElement('a');
                 a.href    = '#';
                 a.title   = 'View full product details';
-                a.textContent = id;
                 a.onclick = e => { e.preventDefault(); openModal(id); };
-                td.appendChild(a);
+                if (isLoaded && obj.licence_number !== '—') {
+                    a.textContent = obj.licence_number;
+                    td.appendChild(a);
+                } else if (!isLoaded) {
+                    const shimmer = document.createElement('span');
+                    shimmer.className = 'cell-loading';
+                    td.appendChild(shimmer);
+                } else {
+                    // Enriched but no licence_number — fall back to lnhpd_id as link text
+                    a.textContent = id;
+                    td.appendChild(a);
+                }
 
             } else if (col.key === 'flag_product_status' && isLoaded) {
                 const status = obj[col.key] || '—';
@@ -455,10 +468,10 @@ function openModal(lnhpdId) {
 
     root.innerHTML = `
         <div class="modal-backdrop" id="modalBackdrop">
-            <div class="modal" role="dialog" aria-modal="true" aria-label="Product details for NHP Licence ${lnhpdId}">
+            <div class="modal" role="dialog" aria-modal="true" aria-label="Product details for NHP Licence ${cached?.licence_number || lnhpdId}">
                 <div class="modal-header">
                     <div>
-                        <div class="modal-id">NHP Licence # ${lnhpdId}</div>
+                        <div class="modal-id">NHP Licence # ${cached?.licence_number || lnhpdId}</div>
                         <h2>${productName}</h2>
                     </div>
                     <button class="modal-close" onclick="closeModal()" aria-label="Close">✕</button>
@@ -481,9 +494,13 @@ function openModal(lnhpdId) {
     fetchModalData(lnhpdId).then(html => {
         const body = document.querySelector('.modal-body');
         if (body) body.innerHTML = html;
-        // Update header with fetched product name
-        const h2 = document.querySelector('.modal-header h2');
-        if (h2 && enrichedCache[lnhpdId]) h2.textContent = enrichedCache[lnhpdId].product_name;
+        // Update header with fetched licence_number and product name
+        const modalId = document.querySelector('.modal-id');
+        const h2      = document.querySelector('.modal-header h2');
+        if (enrichedCache[lnhpdId]) {
+            if (modalId) modalId.textContent = `NHP Licence # ${enrichedCache[lnhpdId].licence_number}`;
+            if (h2)      h2.textContent      = enrichedCache[lnhpdId].product_name;
+        }
     });
 }
 
@@ -520,6 +537,7 @@ async function fetchModalData(lnhpdId) {
         if (licence) {
             enrichedCache[lnhpdId] = {
                 ...enrichedCache[lnhpdId],
+                licence_number:     licence.licence_number    || '—',
                 product_name:       licence.product_name_en  || licence.product_name || '—',
                 company_name:       licence.company_name_en  || licence.company_name || '—',
                 dosage_form:        licence.dosage_form_en   || licence.dosage_form  || '—',
@@ -564,7 +582,7 @@ function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, ri
             <div class="modal-section">
                 <div class="modal-section-title">Product overview</div>
                 <div class="modal-grid">
-                    ${field('Licence #',        licence.lnhpd_id)}
+                    ${field('Licence #',        licence.licence_number)}
                     ${field('Product name (EN)', licence.product_name_en  || licence.product_name)}
                     ${field('Product name (FR)', licence.product_name_fr)}
                     ${field('Company',           licence.company_name_en  || licence.company_name)}
