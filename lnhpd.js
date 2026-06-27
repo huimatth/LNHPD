@@ -1,14 +1,15 @@
 // ── State ──────────────────────────────────────────────────────────────────
-let allProducts     = [];   // full deduplicated list of {lnhpd_id, route_type_desc}
-let enrichedCache   = {};   // lnhpd_id → enriched product object (cached after first fetch)
-let filteredIds     = [];   // lnhpd_ids after filtering
-let currentPage     = 1;
-const PAGE_SIZE     = 25;
-let sortKey         = 'licence_number';
-let sortDir         = 'desc';
+let allProducts      = [];   // full deduplicated list of {lnhpd_id, route_type_desc}
+let enrichedCache    = {};   // lnhpd_id → enriched product object (cached after first fetch)
+let licenceNumberMap = {};   // lnhpd_id → licence_number (built at startup)
+let filteredIds      = [];   // lnhpd_ids after filtering
+let currentPage      = 1;
+const PAGE_SIZE      = 25;
+let sortKey          = 'licence_number';
+let sortDir          = 'desc';
 
 // Tracks which lnhpd_ids have been enriched so we can filter on them
-let enrichedResults = [];   // array of enriched objects for the current filtered set
+let enrichedResults  = [];   // array of enriched objects for the current filtered set
 
 // ── Column definitions ──────────────────────────────────────────────────────
 const COLUMNS = [
@@ -30,50 +31,96 @@ async function fetchData(url) {
     return res.json();
 }
 
-// Fetch a single product licence by lnhpd_id and cache it
+// Fetch a single product licence by lnhpd_id and cache it.
+// IMPORTANT: productlicence ?id= expects licence_number (not lnhpd_id).
+// All other endpoints use lnhpd_id for ?id=.
 async function fetchLicence(lnhpdId) {
     if (enrichedCache[lnhpdId]) return enrichedCache[lnhpdId];
     try {
-        const data = await fetchData(`${BASE}/productlicence/?id=${lnhpdId}&lang=en&type=json`);
+        const licenceNumber = licenceNumberMap[lnhpdId];
+        if (!licenceNumber) throw new Error(`No licence_number found for lnhpd_id ${lnhpdId}`);
+
+        const data    = await fetchData(`${BASE}/productlicence/?id=${licenceNumber}&lang=en&type=json`);
         const licence = Array.isArray(data) ? data[0] : data;
         const route   = allProducts.find(p => p.lnhpd_id === lnhpdId);
         const enriched = {
-            lnhpd_id:           lnhpdId,
-            licence_number:     licence?.licence_number       || '—',
-            product_name:       licence?.product_name_en      || licence?.product_name || '—',
-            company_name:       licence?.company_name_en      || licence?.company_name || '—',
-            dosage_form:        licence?.dosage_form_en       || licence?.dosage_form  || '—',
-            licence_date:       licence?.licence_date         || '—',
+            lnhpd_id:            lnhpdId,
+            licence_number:      licence?.licence_number                              || licenceNumber,
+            product_name:        licence?.product_name                                || '—',
+            company_name:        licence?.company_name                                || '—',
+            dosage_form:         licence?.dosage_form                                 || '—',
+            licence_date:        licence?.licence_date                                || '—',
             flag_product_status: licence?.flag_product_status != null
-                                    ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive')
-                                    : '—',
-            route_type_desc:    route?.route_type_desc        || '—',
-            _raw:               licence,
+                                     ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive')
+                                     : '—',
+            route_type_desc:     route?.route_type_desc                               || '—',
+            _raw:                licence,
         };
         enrichedCache[lnhpdId] = enriched;
         return enriched;
     } catch {
         return {
-            lnhpd_id:           lnhpdId,
-            licence_number:     '—',
-            product_name:       '—',
-            company_name:       '—',
-            dosage_form:        '—',
-            licence_date:       '—',
+            lnhpd_id:            lnhpdId,
+            licence_number:      licenceNumberMap[lnhpdId] || '—',
+            product_name:        '—',
+            company_name:        '—',
+            dosage_form:         '—',
+            licence_date:        '—',
             flag_product_status: '—',
-            route_type_desc:    allProducts.find(p => p.lnhpd_id === lnhpdId)?.route_type_desc || '—',
-            _raw:               null,
+            route_type_desc:     allProducts.find(p => p.lnhpd_id === lnhpdId)?.route_type_desc || '—',
+            _raw:                null,
         };
     }
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
+
+// Build lnhpd_id → licence_number map by paginating through productlicence.
+// productlicence without ?id= returns all licences paginated.
+// Each record contains both lnhpd_id and licence_number.
+async function buildLicenceNumberMap() {
+    const firstPage = await fetchData(`${BASE}/productlicence/?lang=en&type=json`);
+    const records   = firstPage?.data || (Array.isArray(firstPage) ? firstPage : []);
+    records.forEach(r => {
+        if (r.lnhpd_id && r.licence_number) licenceNumberMap[r.lnhpd_id] = r.licence_number;
+    });
+
+    // Fetch remaining pages in parallel if paginated
+    const pagination = firstPage?.metadata?.pagination;
+    if (pagination && pagination.total && pagination.limit) {
+        const totalPages = Math.ceil(pagination.total / pagination.limit);
+        const pagePromises = [];
+        for (let p = 2; p <= totalPages; p++) {
+            pagePromises.push(
+                fetchData(`${BASE}/productlicence/?lang=en&type=json&page=${p}`)
+                    .then(d => {
+                        const rows = d?.data || (Array.isArray(d) ? d : []);
+                        rows.forEach(r => {
+                            if (r.lnhpd_id && r.licence_number) {
+                                licenceNumberMap[r.lnhpd_id] = r.licence_number;
+                            }
+                        });
+                    })
+                    .catch(() => {})
+            );
+        }
+        // Batch page fetches to avoid overwhelming the API
+        for (let i = 0; i < pagePromises.length; i += 20) {
+            await Promise.all(pagePromises.slice(i, i + 20));
+        }
+    }
+}
+
 async function main() {
     showLoading('Loading product list from Health Canada…', 'Fetching all licensed natural health products');
     try {
-        // Step 1: Fetch all product routes — this is the fastest bulk endpoint
-        // It returns every lnhpd_id in the database as a flat array
-        const routes = await fetchData(`${BASE}/productroute/?lang=en&type=json`);
+        // Step 1: Fetch all product routes and build licence number map in parallel.
+        // productroute returns every lnhpd_id as a fast flat array.
+        // productlicence (paginated, no ?id=) gives us lnhpd_id → licence_number mapping.
+        const [routes] = await Promise.all([
+            fetchData(`${BASE}/productroute/?lang=en&type=json`),
+            buildLicenceNumberMap(),
+        ]);
 
         // Step 2: Deduplicate by lnhpd_id, keeping one route per product
         const seen = new Set();
@@ -511,44 +558,49 @@ function closeModal() {
 
 async function fetchModalData(lnhpdId) {
     try {
+        const licenceNumber = licenceNumberMap[lnhpdId];
+
+        // NOTE per API docs:
+        //   productlicence  → ?id= expects licence_number
+        //   all other endpoints → ?id= expects lnhpd_id
         const [
             licenceData,
             ingredients,
             nonMedicinal,
             routes,
             purposes,
-            riskInfo,
-            storageConditions,
-            subingredients,
+            risks,
+            dose,
         ] = await Promise.all([
-            fetchData(`${BASE}/productlicence/?id=${lnhpdId}&lang=en&type=json`),
+            licenceNumber
+                ? fetchData(`${BASE}/productlicence/?id=${licenceNumber}&lang=en&type=json`)
+                : Promise.resolve(null),
             fetchData(`${BASE}/medicinalingredient/?id=${lnhpdId}&lang=en&type=json`),
             fetchData(`${BASE}/nonmedicinalingredient/?id=${lnhpdId}&lang=en&type=json`),
             fetchData(`${BASE}/productroute/?id=${lnhpdId}&lang=en&type=json`),
             fetchData(`${BASE}/productpurpose/?id=${lnhpdId}&lang=en&type=json`),
-            fetchData(`${BASE}/riskinfo/?id=${lnhpdId}&lang=en&type=json`),
-            fetchData(`${BASE}/storagecondition/?id=${lnhpdId}&lang=en&type=json`),
-            fetchData(`${BASE}/subingredient/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productrisk/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productdose/?id=${lnhpdId}&lang=en&type=json`),
         ]);
 
         const licence = Array.isArray(licenceData) ? licenceData[0] : licenceData;
 
-        // Update cache with freshly fetched data
+        // Update cache with freshly fetched licence data
         if (licence) {
             enrichedCache[lnhpdId] = {
                 ...enrichedCache[lnhpdId],
-                licence_number:     licence.licence_number    || '—',
-                product_name:       licence.product_name_en  || licence.product_name || '—',
-                company_name:       licence.company_name_en  || licence.company_name || '—',
-                dosage_form:        licence.dosage_form_en   || licence.dosage_form  || '—',
-                licence_date:       licence.licence_date     || '—',
+                licence_number:      licence.licence_number || licenceNumber || '—',
+                product_name:        licence.product_name   || '—',
+                company_name:        licence.company_name   || '—',
+                dosage_form:         licence.dosage_form    || '—',
+                licence_date:        licence.licence_date   || '—',
                 flag_product_status: licence.flag_product_status != null
                     ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive') : '—',
                 _raw: licence,
             };
         }
 
-        return buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, riskInfo, storageConditions, subingredients);
+        return buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, risks, dose);
     } catch (err) {
         console.error('Modal fetch error:', err);
         return `<div class="modal-error">⚠️ Could not load product details. Please try again.</div>`;
@@ -568,13 +620,16 @@ function field(label, value, fullWidth = false) {
 
 function toList(data) {
     if (!data) return [];
+    // Handle paginated {data:[...]} responses and plain arrays
+    if (data.data && Array.isArray(data.data)) return data.data;
     return Array.isArray(data) ? data : [data];
 }
 
-function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, riskInfo, storageConditions, subingredients) {
+function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, risks, dose) {
     const sections = [];
 
     // ── Product overview ──────────────────────────────────────────────────────
+    // Field names exactly per productlicence API docs
     if (licence) {
         const status = licence.flag_product_status != null
             ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive') : '—';
@@ -582,31 +637,40 @@ function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, ri
             <div class="modal-section">
                 <div class="modal-section-title">Product overview</div>
                 <div class="modal-grid">
-                    ${field('Licence #',        licence.licence_number)}
-                    ${field('Product name (EN)', licence.product_name_en  || licence.product_name)}
-                    ${field('Product name (FR)', licence.product_name_fr)}
-                    ${field('Company',           licence.company_name_en  || licence.company_name)}
-                    ${field('Dosage form',       licence.dosage_form_en   || licence.dosage_form)}
-                    ${field('Licence date',      licence.licence_date)}
-                    ${field('Status',            status)}
-                    ${field('Sub-status',        licence.sub_status_en    || licence.sub_status)}
-                    ${field('Product type',      licence.product_type_en  || licence.product_type)}
-                    ${field('Original company',  licence.original_company_name)}
+                    ${field('Licence #',             licence.licence_number)}
+                    ${field('Product name',          licence.product_name)}
+                    ${field('Company',               licence.company_name)}
+                    ${field('Dosage form',           licence.dosage_form)}
+                    ${field('Licence date',          licence.licence_date)}
+                    ${field('Revised date',          licence.revised_date)}
+                    ${field('Date received',         licence.time_receipt)}
+                    ${field('Status',                status)}
+                    ${field('Submission type',       licence.sub_submission_type_desc)}
+                    ${field('Attested to monograph', licence.flag_attested_monograph === 1 ? 'Yes' : licence.flag_attested_monograph === 0 ? 'No' : '—')}
                 </div>
             </div>`);
     }
 
     // ── Medicinal ingredients ─────────────────────────────────────────────────
-    const ingList = toList(ingredients?.data || ingredients);
+    // Field names exactly per medicinalingredient API docs
+    const ingList = toList(ingredients);
     if (ingList.length > 0) {
-        const rows = ingList.map(i => `
+        const rows = ingList.map(i => {
+            const qty     = (i.quantity && i.quantity !== 0)
+                ? `${v(i.quantity)} ${v(i.quantity_unit_of_measure)}` : '—';
+            const potency = (i.potency_amount && i.potency_amount !== 0)
+                ? `${v(i.potency_amount)} ${v(i.potency_unit_of_measure)}` : '—';
+            const dhe     = (i.dried_herb_equivalent && i.dried_herb_equivalent !== '0')
+                ? `${v(i.dried_herb_equivalent)} ${v(i.dhe_unit_of_measure)}` : '—';
+            return `
             <tr>
                 <td>${v(i.ingredient_name)}</td>
                 <td>${v(i.source_material)}</td>
-                <td>${v(i.quantity)} ${v(i.quantity_unit_of_measure)}</td>
-                <td>${v(i.potency_amount) !== '—' ? `${v(i.potency_amount)} ${v(i.potency_unit_of_measure)}` : '—'}</td>
-                <td>${v(i.dried_herb_equivalent) !== '—' ? `${v(i.dried_herb_equivalent)} ${v(i.dhe_unit_of_measure)}` : '—'}</td>
-            </tr>`).join('');
+                <td>${qty}</td>
+                <td>${potency}</td>
+                <td>${dhe}</td>
+            </tr>`;
+        }).join('');
         sections.push(`
             <div class="modal-section">
                 <div class="modal-section-title">Medicinal ingredients</div>
@@ -623,45 +687,21 @@ function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, ri
             </div>`);
     }
 
-    // ── Sub-ingredients ────────────────────────────────────────────────────────
-    const subList = toList(subingredients?.data || subingredients);
-    if (subList.length > 0) {
-        const rows = subList.map(s => `
-            <tr>
-                <td>${v(s.ingredient_name)}</td>
-                <td>${v(s.source_material)}</td>
-                <td>${v(s.quantity)} ${v(s.quantity_unit_of_measure)}</td>
-            </tr>`).join('');
-        sections.push(`
-            <div class="modal-section">
-                <div class="modal-section-title">Sub-ingredients</div>
-                <table class="modal-table">
-                    <thead><tr><th>Ingredient</th><th>Source material</th><th>Quantity</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>`);
-    }
-
     // ── Non-medicinal ingredients ─────────────────────────────────────────────
-    const nonMedList = toList(nonMedicinal?.data || nonMedicinal);
+    // Field names per nonmedicinalingredient API docs: ingredient_name only (no role field in API)
+    const nonMedList = toList(nonMedicinal);
     if (nonMedList.length > 0) {
-        const rows = nonMedList.map(n => `
-            <tr>
-                <td>${v(n.ingredient_name)}</td>
-                <td>${v(n.ingredient_role)}</td>
-            </tr>`).join('');
+        const items = nonMedList.map(n => `<li>${v(n.ingredient_name)}</li>`).join('');
         sections.push(`
             <div class="modal-section">
                 <div class="modal-section-title">Non-medicinal ingredients</div>
-                <table class="modal-table">
-                    <thead><tr><th>Ingredient</th><th>Role</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
+                <ul style="margin:0;padding-left:18px;font-size:13px;line-height:2">${items}</ul>
             </div>`);
     }
 
     // ── Routes of administration ──────────────────────────────────────────────
-    const routeList = toList(routes?.data || routes);
+    // Field names per productroute API docs: route_type_desc
+    const routeList = toList(routes);
     if (routeList.length > 0) {
         sections.push(`
             <div class="modal-section">
@@ -672,13 +712,46 @@ function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, ri
             </div>`);
     }
 
-    // ── Purposes / claims ─────────────────────────────────────────────────────
-    const purposeList = toList(purposes?.data || purposes);
+    // ── Dosage ────────────────────────────────────────────────────────────────
+    // Field names per productdose API docs
+    const doseList = toList(dose);
+    if (doseList.length > 0) {
+        const rows = doseList.map(d => {
+            const qty  = (d.quantity_dose && d.quantity_dose !== 0)
+                ? `${v(d.quantity_dose)} ${v(d.uom_type_desc_quantity_dose)}` : '—';
+            const freq = (d.frequency && d.frequency !== 0)
+                ? `${v(d.frequency)} ${v(d.uom_type_desc_frequency)}` : '—';
+            const age  = (d.age && d.age !== 0)
+                ? `${v(d.age)} ${v(d.uom_type_desc_age)}` : '—';
+            return `
+            <tr>
+                <td>${v(d.population_type_desc)}</td>
+                <td>${qty}</td>
+                <td>${freq}</td>
+                <td>${age}</td>
+            </tr>`;
+        }).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Dosage</div>
+                <table class="modal-table">
+                    <thead><tr>
+                        <th>Population</th>
+                        <th>Quantity</th>
+                        <th>Frequency</th>
+                        <th>Age</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    }
+
+    // ── Purposes / health claims ──────────────────────────────────────────────
+    // Field names per productpurpose API docs: purpose (not purpose_desc or purpose_desc_en)
+    const purposeList = toList(purposes);
     if (purposeList.length > 0) {
         const rows = purposeList.map(p => `
-            <tr>
-                <td>${v(p.purpose_desc_en || p.purpose_desc)}</td>
-            </tr>`).join('');
+            <tr><td>${v(p.purpose)}</td></tr>`).join('');
         sections.push(`
             <div class="modal-section">
                 <div class="modal-section-title">Purposes / health claims</div>
@@ -690,32 +763,22 @@ function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, ri
     }
 
     // ── Risk information ──────────────────────────────────────────────────────
-    const riskList = toList(riskInfo?.data || riskInfo);
+    // Field names per productrisk API docs: risk_type_desc, sub_risk_type_desc, risk_text
+    const riskList = toList(risks);
     if (riskList.length > 0) {
         const rows = riskList.map(r => `
             <tr>
-                <td>${v(r.risk_info_type_desc_en || r.risk_info_type_desc)}</td>
-                <td>${v(r.risk_info_desc_en       || r.risk_info_desc)}</td>
+                <td>${v(r.risk_type_desc)}</td>
+                <td>${v(r.sub_risk_type_desc)}</td>
+                <td>${v(r.risk_text)}</td>
             </tr>`).join('');
         sections.push(`
             <div class="modal-section">
-                <div class="modal-section-title">Risk information (warnings, cautions, contraindications)</div>
+                <div class="modal-section-title">Risk information</div>
                 <table class="modal-table">
-                    <thead><tr><th>Type</th><th>Description</th></tr></thead>
+                    <thead><tr><th>Type</th><th>Sub-type</th><th>Statement</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
-            </div>`);
-    }
-
-    // ── Storage conditions ────────────────────────────────────────────────────
-    const storageList = toList(storageConditions?.data || storageConditions);
-    if (storageList.length > 0) {
-        sections.push(`
-            <div class="modal-section">
-                <div class="modal-section-title">Storage conditions</div>
-                <div class="modal-grid">
-                    ${storageList.map(s => field('Condition', s.storage_condition_desc_en || s.storage_condition_desc)).join('')}
-                </div>
             </div>`);
     }
 
