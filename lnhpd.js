@@ -389,3 +389,456 @@ function renderTable() {
     const thead = table.createTHead();
     const headerRow = thead.insertRow();
     COLUMNS.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        th.onclick = () => toggleSort(col.key);
+        if (col.key === sortKey) th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        headerRow.appendChild(th);
+    });
+
+    // Body
+    const tbody = document.createElement('tbody');
+    pageIds.forEach(id => {
+        const obj = enrichedCache[id] || { lnhpd_id: id };
+        const row = tbody.insertRow();
+
+        COLUMNS.forEach(col => {
+            const td = row.insertCell();
+            if (col.cls) td.className = col.cls;
+
+            const isLoaded = !!enrichedCache[id];
+
+            if (col.key === 'licence_number') {
+                // Show licence_number if enriched, otherwise show a shimmer
+                const a = document.createElement('a');
+                a.href    = '#';
+                a.title   = 'View full product details';
+                a.onclick = e => { e.preventDefault(); openModal(id); };
+                if (isLoaded && obj.licence_number !== '—') {
+                    a.textContent = obj.licence_number;
+                    td.appendChild(a);
+                } else if (!isLoaded) {
+                    const shimmer = document.createElement('span');
+                    shimmer.className = 'cell-loading';
+                    td.appendChild(shimmer);
+                } else {
+                    // Enriched but no licence_number — fall back to lnhpd_id as link text
+                    a.textContent = id;
+                    td.appendChild(a);
+                }
+
+            } else if (col.key === 'flag_product_status' && isLoaded) {
+                const status = obj[col.key] || '—';
+                if (status !== '—') {
+                    const badge = document.createElement('span');
+                    badge.className = `badge ${status === 'Active' ? 'badge-active' : 'badge-inactive'}`;
+                    badge.textContent = status;
+                    td.appendChild(badge);
+                } else {
+                    td.textContent = '—';
+                }
+
+            } else if (!isLoaded && col.key !== 'lnhpd_id') {
+                // Show shimmer skeleton while this row's licence data loads
+                const shimmer = document.createElement('span');
+                shimmer.className = 'cell-loading';
+                td.appendChild(shimmer);
+
+            } else {
+                td.textContent = obj[col.key] || '—';
+            }
+        });
+    });
+
+    table.appendChild(tbody);
+    scroll.appendChild(table);
+    wrapper.appendChild(scroll);
+    container.innerHTML = '';
+    container.appendChild(wrapper);
+
+    // After rendering with skeletons, fetch any missing enrichments and re-render
+    const missing = pageIds.filter(id => !enrichedCache[id]);
+    if (missing.length > 0) {
+        Promise.all(missing.map(id => fetchLicence(id))).then(() => {
+            // Only re-render if we're still on the same page
+            renderTable();
+        });
+    }
+}
+
+function renderPagination() {
+    const container  = document.getElementById('pagination');
+    const totalPages = Math.ceil(filteredIds.length / PAGE_SIZE);
+    container.innerHTML = '';
+    if (totalPages <= 1) return;
+
+    const makeBtn = (label, page, disabled, active) => {
+        const btn = document.createElement('button');
+        btn.className   = 'page-btn' + (active ? ' active' : '');
+        btn.textContent = label;
+        btn.disabled    = disabled;
+        btn.onclick     = async () => {
+            currentPage = page;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            showLoading('Loading page…', '');
+            await enrichPage();
+            renderAll();
+        };
+        return btn;
+    };
+
+    container.appendChild(makeBtn('←', currentPage - 1, currentPage === 1, false));
+
+    const win = 5;
+    let start = Math.max(1, currentPage - Math.floor(win / 2));
+    let end   = Math.min(totalPages, start + win - 1);
+    if (end - start + 1 < win) start = Math.max(1, end - win + 1);
+
+    if (start > 1) {
+        container.appendChild(makeBtn('1', 1, false, false));
+        if (start > 2) {
+            const el = document.createElement('span');
+            el.textContent = '…'; el.style.padding = '0 4px'; el.style.color = 'var(--grey-300)';
+            container.appendChild(el);
+        }
+    }
+    for (let p = start; p <= end; p++) {
+        container.appendChild(makeBtn(p, p, false, p === currentPage));
+    }
+    if (end < totalPages) {
+        if (end < totalPages - 1) {
+            const el = document.createElement('span');
+            el.textContent = '…'; el.style.padding = '0 4px'; el.style.color = 'var(--grey-300)';
+            container.appendChild(el);
+        }
+        container.appendChild(makeBtn(totalPages, totalPages, false, false));
+    }
+
+    container.appendChild(makeBtn('→', currentPage + 1, currentPage === totalPages, false));
+}
+
+function renderPills(company, ingredient) {
+    const pillsContainer = document.getElementById('activePills');
+    pillsContainer.innerHTML = '';
+    const addPill = (label, field) => {
+        const pill = document.createElement('div');
+        pill.className = 'filter-pill';
+        pill.innerHTML = `${label} <button onclick="clearPill('${field}')" title="Remove filter">✕</button>`;
+        pillsContainer.appendChild(pill);
+    };
+    if (company)    addPill(`Company: ${company}`,         'companyFilter');
+    if (ingredient) addPill(`Ingredient: ${ingredient}`,   'ingredientFilter');
+}
+
+// ── Loading / error states ────────────────────────────────────────────────────
+function showLoading(label = 'Loading…', sub = '') {
+    document.getElementById('table-container').innerHTML = `
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <span class="loading-label">${label}</span>
+            ${sub ? `<span class="loading-sub">${sub}</span>` : ''}
+        </div>`;
+    document.getElementById('pagination').innerHTML = '';
+    document.getElementById('resultsMeta').style.display = 'none';
+}
+
+function showError() {
+    document.getElementById('table-container').innerHTML = `
+        <div class="state-box">
+            <div class="state-icon">⚠️</div>
+            <div class="state-title">Couldn't load data</div>
+            <div class="state-body">There was a problem reaching the Health Canada API. Please check your connection and reload the page.</div>
+        </div>`;
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(lnhpdId) {
+    const root = document.getElementById('modal-root');
+    const cached = enrichedCache[lnhpdId];
+    const productName = cached?.product_name || `Product ${lnhpdId}`;
+
+    root.innerHTML = `
+        <div class="modal-backdrop" id="modalBackdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-label="Product details for NHP Licence ${cached?.licence_number || lnhpdId}">
+                <div class="modal-header">
+                    <div>
+                        <div class="modal-id">NHP Licence # ${cached?.licence_number || lnhpdId}</div>
+                        <h2>${productName}</h2>
+                    </div>
+                    <button class="modal-close" onclick="closeModal()" aria-label="Close">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-loading">
+                        <div class="spinner"></div>
+                        <span>Loading product details…</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    document.getElementById('modalBackdrop').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeModal();
+    });
+    document._modalEsc = e => { if (e.key === 'Escape') closeModal(); };
+    document.addEventListener('keydown', document._modalEsc);
+
+    fetchModalData(lnhpdId).then(html => {
+        const body = document.querySelector('.modal-body');
+        if (body) body.innerHTML = html;
+        // Update header with fetched licence_number and product name
+        const modalId = document.querySelector('.modal-id');
+        const h2      = document.querySelector('.modal-header h2');
+        if (enrichedCache[lnhpdId]) {
+            if (modalId) modalId.textContent = `NHP Licence # ${enrichedCache[lnhpdId].licence_number}`;
+            if (h2)      h2.textContent      = enrichedCache[lnhpdId].product_name;
+        }
+    });
+}
+
+function closeModal() {
+    document.getElementById('modal-root').innerHTML = '';
+    document.removeEventListener('keydown', document._modalEsc);
+}
+
+async function fetchModalData(lnhpdId) {
+    try {
+        const licenceNumber = licenceNumberMap[lnhpdId]?.licence_number;
+
+        // NOTE per API docs:
+        //   productlicence  → ?id= expects licence_number
+        //   all other endpoints → ?id= expects lnhpd_id
+        const [
+            licenceData,
+            ingredients,
+            nonMedicinal,
+            routes,
+            purposes,
+            risks,
+            dose,
+        ] = await Promise.all([
+            licenceNumber
+                ? fetchData(`${BASE}/productlicence/?id=${licenceNumber}&lang=en&type=json`)
+                : Promise.resolve(null),
+            fetchData(`${BASE}/medicinalingredient/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/nonmedicinalingredient/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productroute/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productpurpose/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productrisk/?id=${lnhpdId}&lang=en&type=json`),
+            fetchData(`${BASE}/productdose/?id=${lnhpdId}&lang=en&type=json`),
+        ]);
+
+        const licence = Array.isArray(licenceData) ? licenceData[0] : licenceData;
+
+        // Update cache with freshly fetched licence data
+        if (licence) {
+            enrichedCache[lnhpdId] = {
+                ...enrichedCache[lnhpdId],
+                licence_number:      licence.licence_number || licenceNumber || '—',
+                product_name:        licence.product_name   || '—',
+                company_name:        licence.company_name   || '—',
+                dosage_form:         licence.dosage_form    || '—',
+                licence_date:        licence.licence_date   || licenceNumberMap[lnhpdId]?.licence_date || '—',
+                flag_product_status: licence.flag_product_status != null
+                    ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive') : '—',
+                _raw: licence,
+            };
+        }
+
+        return buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, risks, dose);
+    } catch (err) {
+        console.error('Modal fetch error:', err);
+        return `<div class="modal-error">⚠️ Could not load product details. Please try again.</div>`;
+    }
+}
+
+function v(val) {
+    if (val === null || val === undefined || val === '' || val === 0) return '—';
+    return val;
+}
+
+function field(label, value, fullWidth = false) {
+    return `<div class="modal-field${fullWidth ? ' full-width' : ''}">
+        <label>${label}</label><span>${v(value)}</span>
+    </div>`;
+}
+
+function toList(data) {
+    if (!data) return [];
+    // Handle paginated {data:[...]} responses and plain arrays
+    if (data.data && Array.isArray(data.data)) return data.data;
+    return Array.isArray(data) ? data : [data];
+}
+
+function buildModalHTML(licence, ingredients, nonMedicinal, routes, purposes, risks, dose) {
+    const sections = [];
+
+    // ── Product overview ──────────────────────────────────────────────────────
+    // Field names exactly per productlicence API docs
+    if (licence) {
+        const status = licence.flag_product_status != null
+            ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive') : '—';
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Product overview</div>
+                <div class="modal-grid">
+                    ${field('Licence #',             licence.licence_number)}
+                    ${field('Product name',          licence.product_name)}
+                    ${field('Company',               licence.company_name)}
+                    ${field('Dosage form',           licence.dosage_form)}
+                    ${field('Licence date',          licence.licence_date)}
+                    ${field('Revised date',          licence.revised_date)}
+                    ${field('Date received',         licence.time_receipt)}
+                    ${field('Status',                status)}
+                    ${field('Submission type',       licence.sub_submission_type_desc)}
+                    ${field('Attested to monograph', licence.flag_attested_monograph === 1 ? 'Yes' : licence.flag_attested_monograph === 0 ? 'No' : '—')}
+                </div>
+            </div>`);
+    }
+
+    // ── Medicinal ingredients ─────────────────────────────────────────────────
+    // Field names exactly per medicinalingredient API docs
+    const ingList = toList(ingredients);
+    if (ingList.length > 0) {
+        const rows = ingList.map(i => {
+            const qty     = (i.quantity && i.quantity !== 0)
+                ? `${v(i.quantity)} ${v(i.quantity_unit_of_measure)}` : '—';
+            const potency = (i.potency_amount && i.potency_amount !== 0)
+                ? `${v(i.potency_amount)} ${v(i.potency_unit_of_measure)}` : '—';
+            const dhe     = (i.dried_herb_equivalent && i.dried_herb_equivalent !== '0')
+                ? `${v(i.dried_herb_equivalent)} ${v(i.dhe_unit_of_measure)}` : '—';
+            return `
+            <tr>
+                <td>${v(i.ingredient_name)}</td>
+                <td>${v(i.source_material)}</td>
+                <td>${qty}</td>
+                <td>${potency}</td>
+                <td>${dhe}</td>
+            </tr>`;
+        }).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Medicinal ingredients</div>
+                <table class="modal-table">
+                    <thead><tr>
+                        <th>Ingredient</th>
+                        <th>Source material</th>
+                        <th>Quantity</th>
+                        <th>Potency</th>
+                        <th>Dried herb equivalent</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    }
+
+    // ── Non-medicinal ingredients ─────────────────────────────────────────────
+    // Field names per nonmedicinalingredient API docs: ingredient_name only (no role field in API)
+    const nonMedList = toList(nonMedicinal);
+    if (nonMedList.length > 0) {
+        const items = nonMedList.map(n => `<li>${v(n.ingredient_name)}</li>`).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Non-medicinal ingredients</div>
+                <ul style="margin:0;padding-left:18px;font-size:13px;line-height:2">${items}</ul>
+            </div>`);
+    }
+
+    // ── Routes of administration ──────────────────────────────────────────────
+    // Field names per productroute API docs: route_type_desc
+    const routeList = toList(routes);
+    if (routeList.length > 0) {
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Route of administration</div>
+                <div class="modal-grid">
+                    ${routeList.map(r => field('Route', r.route_type_desc)).join('')}
+                </div>
+            </div>`);
+    }
+
+    // ── Dosage ────────────────────────────────────────────────────────────────
+    // Field names per productdose API docs
+    const doseList = toList(dose);
+    if (doseList.length > 0) {
+        const rows = doseList.map(d => {
+            const qty  = (d.quantity_dose && d.quantity_dose !== 0)
+                ? `${v(d.quantity_dose)} ${v(d.uom_type_desc_quantity_dose)}` : '—';
+            const freq = (d.frequency && d.frequency !== 0)
+                ? `${v(d.frequency)} ${v(d.uom_type_desc_frequency)}` : '—';
+            const age  = (d.age && d.age !== 0)
+                ? `${v(d.age)} ${v(d.uom_type_desc_age)}` : '—';
+            return `
+            <tr>
+                <td>${v(d.population_type_desc)}</td>
+                <td>${qty}</td>
+                <td>${freq}</td>
+                <td>${age}</td>
+            </tr>`;
+        }).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Dosage</div>
+                <table class="modal-table">
+                    <thead><tr>
+                        <th>Population</th>
+                        <th>Quantity</th>
+                        <th>Frequency</th>
+                        <th>Age</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    }
+
+    // ── Purposes / health claims ──────────────────────────────────────────────
+    // Field names per productpurpose API docs: purpose (not purpose_desc or purpose_desc_en)
+    const purposeList = toList(purposes);
+    if (purposeList.length > 0) {
+        const rows = purposeList.map(p => `
+            <tr><td>${v(p.purpose)}</td></tr>`).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Purposes / health claims</div>
+                <table class="modal-table">
+                    <thead><tr><th>Claim</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    }
+
+    // ── Risk information ──────────────────────────────────────────────────────
+    // Field names per productrisk API docs: risk_type_desc, sub_risk_type_desc, risk_text
+    const riskList = toList(risks);
+    if (riskList.length > 0) {
+        const rows = riskList.map(r => `
+            <tr>
+                <td>${v(r.risk_type_desc)}</td>
+                <td>${v(r.sub_risk_type_desc)}</td>
+                <td>${v(r.risk_text)}</td>
+            </tr>`).join('');
+        sections.push(`
+            <div class="modal-section">
+                <div class="modal-section-title">Risk information</div>
+                <table class="modal-table">
+                    <thead><tr><th>Type</th><th>Sub-type</th><th>Statement</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    }
+
+    if (sections.length === 0) {
+        return `<div class="modal-error">No detailed information available for this product.</div>`;
+    }
+
+    return sections.join('');
+}
+
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    ['companyFilter', 'ingredientFilter'].forEach(id => {
+        document.getElementById(id).addEventListener('keydown', e => {
+            if (e.key === 'Enter') applyFilters();
+        });
+    });
+    main();
+});
