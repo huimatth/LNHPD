@@ -1,12 +1,13 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let allProducts      = [];   // full deduplicated list of {lnhpd_id, route_type_desc}
 let enrichedCache    = {};   // lnhpd_id → enriched product object (cached after first fetch)
-let licenceNumberMap = {};   // lnhpd_id → licence_number (built at startup)
+let licenceNumberMap = {};   // lnhpd_id → { licence_number, licence_date } (built at startup)
 let filteredIds      = [];   // lnhpd_ids after filtering
 let currentPage      = 1;
 const PAGE_SIZE      = 25;
 let sortKey          = 'licence_number';
 let sortDir          = 'desc';
+let activeDays       = 90;   // date window: 90 | 180 | 360
 
 // Tracks which lnhpd_ids have been enriched so we can filter on them
 let enrichedResults  = [];   // array of enriched objects for the current filtered set
@@ -37,7 +38,8 @@ async function fetchData(url) {
 async function fetchLicence(lnhpdId) {
     if (enrichedCache[lnhpdId]) return enrichedCache[lnhpdId];
     try {
-        const licenceNumber = licenceNumberMap[lnhpdId];
+        const mapEntry      = licenceNumberMap[lnhpdId];
+        const licenceNumber = mapEntry?.licence_number;
         if (!licenceNumber) throw new Error(`No licence_number found for lnhpd_id ${lnhpdId}`);
 
         const data    = await fetchData(`${BASE}/productlicence/?id=${licenceNumber}&lang=en&type=json`);
@@ -49,7 +51,7 @@ async function fetchLicence(lnhpdId) {
             product_name:        licence?.product_name                                || '—',
             company_name:        licence?.company_name                                || '—',
             dosage_form:         licence?.dosage_form                                 || '—',
-            licence_date:        licence?.licence_date                                || '—',
+            licence_date:        licence?.licence_date                                || mapEntry?.licence_date || '—',
             flag_product_status: licence?.flag_product_status != null
                                      ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive')
                                      : '—',
@@ -59,13 +61,14 @@ async function fetchLicence(lnhpdId) {
         enrichedCache[lnhpdId] = enriched;
         return enriched;
     } catch {
+        const mapEntry = licenceNumberMap[lnhpdId];
         return {
             lnhpd_id:            lnhpdId,
-            licence_number:      licenceNumberMap[lnhpdId] || '—',
+            licence_number:      mapEntry?.licence_number || '—',
             product_name:        '—',
             company_name:        '—',
             dosage_form:         '—',
-            licence_date:        '—',
+            licence_date:        mapEntry?.licence_date   || '—',
             flag_product_status: '—',
             route_type_desc:     allProducts.find(p => p.lnhpd_id === lnhpdId)?.route_type_desc || '—',
             _raw:                null,
@@ -75,14 +78,16 @@ async function fetchLicence(lnhpdId) {
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 
-// Build lnhpd_id → licence_number map by paginating through productlicence.
+// Build lnhpd_id → { licence_number, licence_date } map by paginating through productlicence.
 // productlicence without ?id= returns all licences paginated.
-// Each record contains both lnhpd_id and licence_number.
+// Each record contains lnhpd_id, licence_number, and licence_date — all we need for date filtering.
 async function buildLicenceNumberMap() {
     const firstPage = await fetchData(`${BASE}/productlicence/?lang=en&type=json`);
     const records   = firstPage?.data || (Array.isArray(firstPage) ? firstPage : []);
     records.forEach(r => {
-        if (r.lnhpd_id && r.licence_number) licenceNumberMap[r.lnhpd_id] = r.licence_number;
+        if (r.lnhpd_id && r.licence_number) {
+            licenceNumberMap[r.lnhpd_id] = { licence_number: r.licence_number, licence_date: r.licence_date || null };
+        }
     });
 
     // Fetch remaining pages in parallel if paginated
@@ -97,7 +102,7 @@ async function buildLicenceNumberMap() {
                         const rows = d?.data || (Array.isArray(d) ? d : []);
                         rows.forEach(r => {
                             if (r.lnhpd_id && r.licence_number) {
-                                licenceNumberMap[r.lnhpd_id] = r.licence_number;
+                                licenceNumberMap[r.lnhpd_id] = { licence_number: r.licence_number, licence_date: r.licence_date || null };
                             }
                         });
                     })
@@ -112,11 +117,11 @@ async function buildLicenceNumberMap() {
 }
 
 async function main() {
-    showLoading('Loading product list from Health Canada…', 'Fetching all licensed natural health products');
+    showLoading('Loading product list from Health Canada…', 'Fetching licensed natural health products');
     try {
         // Step 1: Fetch all product routes and build licence number map in parallel.
         // productroute returns every lnhpd_id as a fast flat array.
-        // productlicence (paginated, no ?id=) gives us lnhpd_id → licence_number mapping.
+        // productlicence (paginated, no ?id=) gives us lnhpd_id → { licence_number, licence_date }.
         const [routes] = await Promise.all([
             fetchData(`${BASE}/productroute/?lang=en&type=json`),
             buildLicenceNumberMap(),
@@ -132,20 +137,59 @@ async function main() {
             }
         });
 
-        // Sort by lnhpd_id descending (newest first) as default
-        allProducts.sort((a, b) => b.lnhpd_id - a.lnhpd_id);
-
-        filteredIds = allProducts.map(p => p.lnhpd_id);
-        currentPage = 1;
-
-        // Step 3: Enrich only the first page so the table renders quickly
-        await enrichPage();
-        renderAll();
+        // Step 3: Apply the default 90-day date window and render
+        applyDateWindow();
 
     } catch (err) {
         console.error('Error loading LNHPD data:', err);
         showError();
     }
+}
+
+// Returns the lnhpd_ids whose licence_date falls within the active date window.
+// Uses licenceNumberMap which holds licence_date from the bulk productlicence fetch.
+function getDateWindowIds() {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - activeDays);
+    return allProducts
+        .map(p => p.lnhpd_id)
+        .filter(id => {
+            const entry = licenceNumberMap[id];
+            if (!entry?.licence_date) return false;
+            return new Date(entry.licence_date) >= cutoff;
+        });
+}
+
+// Called when the date window toggle changes or on initial load.
+async function applyDateWindow() {
+    // Update toggle button active states
+    document.querySelectorAll('.date-toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.days) === activeDays);
+    });
+
+    filteredIds = getDateWindowIds();
+    currentPage = 1;
+
+    // Re-apply any existing text filters on top of the new date window
+    const companyRaw    = document.getElementById('companyFilter').value.trim();
+    const ingredientRaw = document.getElementById('ingredientFilter').value.trim();
+    if (companyRaw || ingredientRaw) {
+        // Let applyFilters handle the combined logic
+        await applyFilters();
+        return;
+    }
+
+    await enrichPage();
+    renderAll();
+    renderPills(companyRaw, ingredientRaw);
+}
+
+// Called by the UI toggle buttons
+async function setDateWindow(days) {
+    if (activeDays === days) return;
+    activeDays = days;
+    showLoading(`Loading last ${days} days…`, '');
+    await applyDateWindow();
 }
 
 // Enrich the products on the current page by fetching their licence details
@@ -171,25 +215,28 @@ async function applyFilters() {
     const company       = companyRaw.toLowerCase();
     const ingredient    = ingredientRaw.toLowerCase();
 
-    // If no filters, reset to full list
+    // Start from the date-windowed set, not all products
+    const dateWindowIds = getDateWindowIds();
+
+    // If no text filters, just apply the date window
     if (!company && !ingredient) {
-        resetFilters();
+        filteredIds = dateWindowIds;
+        currentPage = 1;
+        await enrichPage();
+        renderAll();
+        renderPills('', '');
         return;
     }
 
     showLoading(
-        'Searching across all products…',
+        'Searching across products…',
         'This may take a moment for ingredient searches'
     );
 
-    // To filter by company or ingredient we need enriched data.
-    // For company: productlicence has company_name, so we need to fetch all licences.
-    // For ingredient: we search the medicinalingredient endpoint with a name query.
     try {
-        let matchingIds = new Set(allProducts.map(p => p.lnhpd_id));
+        let matchingIds = new Set(dateWindowIds);
 
         if (ingredient) {
-            // The medicinalingredient endpoint supports ?ingredientname= for searching
             const ingData = await fetchData(
                 `${BASE}/medicinalingredient/?ingredientname=${encodeURIComponent(ingredientRaw)}&lang=en&type=json`
             );
@@ -197,12 +244,10 @@ async function applyFilters() {
             const items = ingData?.data || (Array.isArray(ingData) ? ingData : []);
             items.forEach(i => ingIds.add(i.lnhpd_id));
 
-            // If paginated, fetch additional pages
             if (ingData?.metadata?.pagination) {
                 const total = ingData.metadata.pagination.total;
                 const limit = ingData.metadata.pagination.limit || 100;
                 const pages = Math.ceil(total / limit);
-                // Cap at 20 pages (~2000 results) to keep it responsive
                 const pagesToFetch = Math.min(pages, 20);
                 const pagePromises = [];
                 for (let p = 2; p <= pagesToFetch; p++) {
@@ -218,17 +263,15 @@ async function applyFilters() {
                 await Promise.all(pagePromises);
             }
 
+            // Intersect with date window
             matchingIds = new Set([...matchingIds].filter(id => ingIds.has(id)));
         }
 
         if (company) {
-            // For company filtering, we must enrich all matching products.
-            // We batch-fetch up to 500 for performance; warn if truncated.
-            const idsToCheck = [...matchingIds];
+            const idsToCheck   = [...matchingIds];
             const COMPANY_LIMIT = 500;
             const idsForCompany = idsToCheck.slice(0, COMPANY_LIMIT);
 
-            // Fetch all in parallel, batched by 10
             for (let i = 0; i < idsForCompany.length; i += 10) {
                 await Promise.all(idsForCompany.slice(i, i + 10).map(id => fetchLicence(id)));
             }
@@ -260,7 +303,8 @@ async function applyFilters() {
 async function resetFilters() {
     document.getElementById('companyFilter').value    = '';
     document.getElementById('ingredientFilter').value = '';
-    filteredIds = allProducts.map(p => p.lnhpd_id);
+    // Reset text filters but keep the current date window
+    filteredIds = getDateWindowIds();
     currentPage = 1;
     await enrichPage();
     renderAll();
@@ -558,7 +602,7 @@ function closeModal() {
 
 async function fetchModalData(lnhpdId) {
     try {
-        const licenceNumber = licenceNumberMap[lnhpdId];
+        const licenceNumber = licenceNumberMap[lnhpdId]?.licence_number;
 
         // NOTE per API docs:
         //   productlicence  → ?id= expects licence_number
@@ -593,7 +637,7 @@ async function fetchModalData(lnhpdId) {
                 product_name:        licence.product_name   || '—',
                 company_name:        licence.company_name   || '—',
                 dosage_form:         licence.dosage_form    || '—',
-                licence_date:        licence.licence_date   || '—',
+                licence_date:        licence.licence_date   || licenceNumberMap[lnhpdId]?.licence_date || '—',
                 flag_product_status: licence.flag_product_status != null
                     ? (licence.flag_product_status === 1 ? 'Active' : 'Inactive') : '—',
                 _raw: licence,

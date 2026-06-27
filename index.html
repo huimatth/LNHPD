@@ -87,14 +87,6 @@
             box-shadow: var(--shadow-sm);
             margin-bottom: 16px;
         }
-        .filter-card h2 {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            color: var(--grey-500);
-            margin-bottom: 14px;
-        }
         .filter-row {
             display: flex;
             gap: 12px;
@@ -159,8 +151,51 @@
         }
         .btn-ghost:hover { background: var(--grey-50); color: var(--grey-900); }
 
-        /* ── Filter note ── */
-        .filter-note {
+        /* ── Date window toggle ── */
+        .filter-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .filter-header h2 {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--grey-500);
+            margin-bottom: 0;
+        }
+        .date-toggle {
+            display: flex;
+            background: var(--grey-50);
+            border: 1px solid var(--grey-100);
+            border-radius: 100px;
+            padding: 3px;
+            gap: 2px;
+        }
+        .date-toggle-btn {
+            height: 28px;
+            padding: 0 14px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 500;
+            background: transparent;
+            border: none;
+            color: var(--grey-500);
+            cursor: pointer;
+            transition: background .15s, color .15s, box-shadow .15s;
+            white-space: nowrap;
+        }
+        .date-toggle-btn:hover { color: var(--grey-900); }
+        .date-toggle-btn.active {
+            background: var(--white);
+            color: var(--teal);
+            box-shadow: var(--shadow-sm);
+            font-weight: 600;
+        }
             margin-top: 10px;
             font-size: 11px;
             color: var(--grey-500);
@@ -523,7 +558,14 @@
 
     <main>
         <div class="filter-card">
-            <h2>Filter results</h2>
+            <div class="filter-header">
+                <h2>Filter results</h2>
+                <div class="date-toggle" role="group" aria-label="Date window">
+                    <button class="date-toggle-btn active" data-days="90"  onclick="setDateWindow(90)">Last 90 days</button>
+                    <button class="date-toggle-btn"        data-days="180" onclick="setDateWindow(180)">Last 180 days</button>
+                    <button class="date-toggle-btn"        data-days="360" onclick="setDateWindow(360)">Last 360 days</button>
+                </div>
+            </div>
             <div class="filter-row">
                 <div class="filter-group">
                     <label for="companyFilter">Company name</label>
