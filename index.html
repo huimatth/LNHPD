@@ -21,6 +21,7 @@
             --grey-900:    #1C1F26;
             --white:       #FFFFFF;
             --danger:      #C0392B;
+            --green:       #1E7E34;
             --radius:      6px;
             --shadow-sm:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
             --shadow-md:   0 4px 12px rgba(0,0,0,.10);
@@ -85,7 +86,7 @@
             border-radius: var(--radius);
             padding: 20px 24px;
             box-shadow: var(--shadow-sm);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         .filter-row {
             display: flex;
@@ -97,14 +98,15 @@
             display: flex;
             flex-direction: column;
             gap: 5px;
-            flex: 1 1 220px;
+            flex: 1 1 200px;
         }
         .filter-group label {
             font-size: 12px;
             font-weight: 500;
             color: var(--grey-500);
         }
-        .filter-group input {
+        .filter-group input,
+        .filter-group select {
             height: 38px;
             border: 1px solid var(--grey-300);
             border-radius: var(--radius);
@@ -115,7 +117,16 @@
             transition: border-color .15s, box-shadow .15s;
             background: var(--white);
         }
-        .filter-group input:focus {
+        .filter-group select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%237B828F' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
+            cursor: pointer;
+        }
+        .filter-group input:focus,
+        .filter-group select:focus {
             outline: none;
             border-color: var(--teal);
             box-shadow: 0 0 0 3px rgba(42,127,143,.15);
@@ -151,7 +162,7 @@
         }
         .btn-ghost:hover { background: var(--grey-50); color: var(--grey-900); }
 
-        /* ── Date window toggle ── */
+        /* ── Filter header ── */
         .filter-header {
             display: flex;
             align-items: center;
@@ -166,8 +177,15 @@
             text-transform: uppercase;
             letter-spacing: .08em;
             color: var(--grey-500);
-            margin-bottom: 0;
         }
+        .filter-header-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* ── Date window toggle ── */
         .date-toggle {
             display: flex;
             background: var(--grey-50);
@@ -196,10 +214,82 @@
             box-shadow: var(--shadow-sm);
             font-weight: 600;
         }
-            margin-top: 10px;
-            font-size: 11px;
+
+        /* ── Status toggle ── */
+        .status-toggle {
+            display: flex;
+            background: var(--grey-50);
+            border: 1px solid var(--grey-100);
+            border-radius: 100px;
+            padding: 3px;
+            gap: 2px;
+        }
+        .status-toggle-btn {
+            height: 28px;
+            padding: 0 12px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 500;
+            background: transparent;
+            border: none;
             color: var(--grey-500);
-            font-style: italic;
+            cursor: pointer;
+            transition: background .15s, color .15s, box-shadow .15s;
+            white-space: nowrap;
+        }
+        .status-toggle-btn:hover { color: var(--grey-900); }
+        .status-toggle-btn.active {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            font-weight: 600;
+        }
+        .status-toggle-btn[data-status="Active"].active   { color: var(--green); }
+        .status-toggle-btn[data-status="Inactive"].active { color: var(--danger); }
+
+        /* ── Quick filters ── */
+        .quick-filters-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--grey-100);
+        }
+        .quick-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--grey-300);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .quick-chip {
+            display: inline-flex;
+            align-items: center;
+            height: 26px;
+            padding: 0 11px;
+            border-radius: 100px;
+            border: 1px solid var(--grey-100);
+            background: var(--grey-50);
+            color: var(--grey-500);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all .15s;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .quick-chip:hover {
+            border-color: var(--teal);
+            color: var(--teal);
+            background: var(--teal-light);
+        }
+        .quick-chip.active {
+            background: var(--teal);
+            color: var(--white);
+            border-color: var(--teal);
         }
 
         /* ── Active filter pills ── */
@@ -237,6 +327,141 @@
             justify-content: center;
         }
         .filter-pill button:hover { background: var(--teal); color: var(--white); }
+
+        .filter-note {
+            margin-top: 10px;
+            font-size: 11px;
+            color: var(--grey-300);
+            font-style: italic;
+        }
+
+        /* ── Stats bar ── */
+        .stats-bar {
+            display: none;
+            grid-template-columns: auto auto 1fr auto;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .stat-card {
+            background: var(--white);
+            border: 1px solid var(--grey-100);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            box-shadow: var(--shadow-sm);
+        }
+        .stat-card.stat-routes {
+            min-width: 0;
+        }
+        .stat-card.stat-status {
+            min-width: 160px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--blue-deep);
+            line-height: 1.15;
+            letter-spacing: -.02em;
+        }
+        .stat-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            color: var(--grey-500);
+            margin-bottom: 2px;
+        }
+        .stat-sub {
+            font-size: 11px;
+            color: var(--grey-300);
+            margin-top: 2px;
+        }
+        .stat-empty {
+            font-size: 12px;
+            color: var(--grey-300);
+        }
+
+        /* Route breakdown */
+        .route-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .route-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            border-radius: 3px;
+            padding: 1px 2px;
+            transition: background .1s;
+        }
+        .route-row:hover { background: var(--teal-light); }
+        .route-name {
+            flex: 0 0 82px;
+            color: var(--grey-500);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+        .route-bar-track {
+            flex: 1;
+            height: 5px;
+            background: var(--grey-100);
+            border-radius: 3px;
+            overflow: hidden;
+            min-width: 40px;
+        }
+        .route-bar-fill {
+            height: 100%;
+            background: var(--teal);
+            border-radius: 3px;
+            transition: width .4s ease;
+        }
+        .route-count {
+            flex: 0 0 36px;
+            text-align: right;
+            color: var(--grey-500);
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Status pills in stats card */
+        .status-pills-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            transition: background .1s;
+        }
+        .status-pill:hover { background: var(--grey-50); }
+        .active-pill   { color: var(--green); }
+        .inactive-pill { color: var(--danger); }
+        .dot {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .dot-green { background: var(--green); }
+        .dot-red   { background: var(--danger); }
+        .status-note {
+            font-size: 10px;
+            color: var(--grey-300);
+            margin-top: 2px;
+        }
 
         /* ── Results meta bar ── */
         .results-meta {
@@ -296,6 +521,8 @@
         }
         tbody tr:last-child { border-bottom: none; }
         tbody tr:hover { background: var(--teal-light); }
+        tbody tr.row-new { background: #FAFFF9; }
+        tbody tr.row-new:hover { background: #E8F7EA; }
 
         td {
             padding: 11px 14px;
@@ -303,7 +530,6 @@
             color: var(--grey-900);
         }
 
-        /* Column-specific styles */
         .col-licence {
             font-family: 'Courier New', monospace;
             font-size: 12px;
@@ -320,8 +546,6 @@
             color: var(--teal);
             border-bottom-color: var(--teal);
         }
-        /* Skeleton shimmer for lazy-loaded cells */
-        .col-licence a:hover { cursor: pointer; }
         .cell-loading {
             display: inline-block;
             width: 80px;
@@ -357,8 +581,23 @@
             font-size: 11px;
             font-weight: 600;
         }
-        .badge-active   { background: #E6F4EA; color: #1E7E34; }
+        .badge-active   { background: #E6F4EA; color: var(--green); }
         .badge-inactive { background: #FDE8E8; color: var(--danger); }
+
+        /* New this week badge */
+        .new-badge {
+            display: inline-block;
+            background: #E6F4EA;
+            color: var(--green);
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            padding: 1px 5px;
+            border-radius: 3px;
+            vertical-align: middle;
+            margin-left: 5px;
+        }
 
         /* ── Loading state ── */
         .loading-state {
@@ -394,7 +633,7 @@
             border-radius: var(--radius);
             box-shadow: var(--shadow-sm);
         }
-        .state-icon { font-size: 36px; margin-bottom: 12px; }
+        .state-icon  { font-size: 36px; margin-bottom: 12px; }
         .state-title { font-size: 16px; font-weight: 600; color: var(--grey-900); margin-bottom: 6px; }
         .state-body  { font-size: 13px; color: var(--grey-500); }
 
@@ -455,8 +694,8 @@
             justify-content: space-between;
             gap: 12px;
         }
-        .modal-header h2 { font-size: 15px; font-weight: 600; }
-        .modal-header .modal-id {
+        .modal-header h2  { font-size: 15px; font-weight: 600; }
+        .modal-id {
             font-family: 'Courier New', monospace;
             font-size: 12px;
             color: rgba(255,255,255,.6);
@@ -503,13 +742,8 @@
             color: var(--grey-500);
             margin-bottom: 2px;
         }
-        .modal-field span {
-            font-size: 13px;
-            color: var(--grey-900);
-        }
-        .modal-field.full-width {
-            grid-column: 1 / -1;
-        }
+        .modal-field span { font-size: 13px; color: var(--grey-900); }
+        .modal-field.full-width { grid-column: 1 / -1; }
         .modal-table {
             width: 100%;
             border-collapse: collapse;
@@ -538,13 +772,20 @@
         .modal-error { color: var(--danger); font-size: 13px; padding: 8px 0; }
 
         /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .stats-bar { grid-template-columns: 1fr 1fr; }
+            .stat-card.stat-routes { grid-column: 1 / -1; }
+            .stat-card.stat-status { grid-column: 1 / -1; }
+        }
         @media (max-width: 640px) {
             header h1 { font-size: 13px; }
             header .subtitle { display: none; }
             .filter-row { flex-direction: column; }
             .filter-actions { width: 100%; }
             .filter-actions button { flex: 1; }
+            .filter-header-controls { flex-direction: column; align-items: flex-start; }
             th, td { padding: 9px 10px; }
+            .stats-bar { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
@@ -557,35 +798,95 @@
     </header>
 
     <main>
+        <!-- ── Filter card ── -->
         <div class="filter-card">
             <div class="filter-header">
                 <h2>Filter results</h2>
-                <div class="date-toggle" role="group" aria-label="Date window">
-                    <button class="date-toggle-btn active" data-days="90"  onclick="setDateWindow(90)">Last 90 days</button>
-                    <button class="date-toggle-btn"        data-days="180" onclick="setDateWindow(180)">Last 180 days</button>
-                    <button class="date-toggle-btn"        data-days="360" onclick="setDateWindow(360)">Last 360 days</button>
+                <div class="filter-header-controls">
+                    <!-- Status toggle -->
+                    <div class="status-toggle" role="group" aria-label="Status filter">
+                        <button class="status-toggle-btn active" data-status="" onclick="setStatusFilter('')">All</button>
+                        <button class="status-toggle-btn" data-status="Active"   onclick="setStatusFilter('Active')">Active</button>
+                        <button class="status-toggle-btn" data-status="Inactive" onclick="setStatusFilter('Inactive')">Inactive</button>
+                    </div>
+                    <!-- Date window toggle -->
+                    <div class="date-toggle" role="group" aria-label="Date window">
+                        <button class="date-toggle-btn active" data-days="90"  onclick="setDateWindow(90)">Last 90 days</button>
+                        <button class="date-toggle-btn"        data-days="180" onclick="setDateWindow(180)">Last 180 days</button>
+                        <button class="date-toggle-btn"        data-days="360" onclick="setDateWindow(360)">Last 360 days</button>
+                    </div>
                 </div>
             </div>
+
             <div class="filter-row">
                 <div class="filter-group">
                     <label for="companyFilter">Company name</label>
-                    <input type="text" id="companyFilter" placeholder="e.g. Jamieson">
+                    <input type="text" id="companyFilter" placeholder="e.g. Jamieson" oninput="onFilterInput()">
                 </div>
                 <div class="filter-group">
                     <label for="ingredientFilter">Medicinal ingredient</label>
-                    <input type="text" id="ingredientFilter" placeholder="e.g. Echinacea">
+                    <input type="text" id="ingredientFilter" placeholder="e.g. Echinacea" oninput="onFilterInput()">
+                </div>
+                <div class="filter-group">
+                    <label for="routeFilter">Route of administration</label>
+                    <select id="routeFilter" onchange="setRouteFilter(this.value)">
+                        <option value="">All routes</option>
+                    </select>
                 </div>
                 <div class="filter-actions">
                     <button class="btn-primary" onclick="applyFilters()">Apply</button>
-                    <button class="btn-ghost"   onclick="resetFilters()">Clear</button>
+                    <button class="btn-ghost"   onclick="resetFilters()">Clear all</button>
                 </div>
             </div>
-            <p class="filter-note">Note: filtering by company or ingredient searches across all licensed products and may take a moment to load.</p>
+
+            <!-- Quick filter chips (populated dynamically) -->
+            <div class="quick-filters-row">
+                <span class="quick-label">Quick:</span>
+                <div id="quickFilters" style="display:contents"></div>
+            </div>
+
+            <p class="filter-note">Tip: Company and ingredient searches query across all products. Status filter loads product records — may be slow for large result sets. Click a route in the breakdown chart to filter instantly.</p>
             <div class="active-filters" id="activePills"></div>
         </div>
 
+        <!-- ── Stats bar ── -->
+        <div class="stats-bar" id="statsBar">
+            <!-- In window -->
+            <div class="stat-card" title="Total products licensed within the selected time period. Changes only when you switch the date window.">
+                <div class="stat-label">In window</div>
+                <div class="stat-value" id="statWindow">—</div>
+                <div class="stat-sub" id="statDateRange"></div>
+            </div>
+            <!-- Filtered -->
+            <div class="stat-card" title="Products remaining after applying your active filters. Equals &quot;In window&quot; when no filters are set.">
+                <div class="stat-label">Filtered results</div>
+                <div class="stat-value" id="statFiltered">—</div>
+                <div class="stat-sub" id="statPct"></div>
+            </div>
+            <!-- Route breakdown -->
+            <div class="stat-card stat-routes">
+                <div class="stat-label">By route of administration</div>
+                <div class="route-list" id="statRouteList">
+                    <div class="stat-empty">Loading…</div>
+                </div>
+            </div>
+            <!-- Status breakdown -->
+            <div class="stat-card stat-status" title="Active/Inactive breakdown for products whose full records have been fetched so far. Grows as you page through results or apply a status filter.">
+                <div class="stat-label">Status (loaded)</div>
+                <div class="status-pills-list" id="statStatus">
+                    <div class="status-note">Load products to see status</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Results meta ── -->
         <div class="results-meta" id="resultsMeta" style="display:none">
             <span class="results-count" id="resultsCount"></span>
+            <button id="downloadBtn" class="btn-primary"
+                style="height:30px;padding:0 12px;font-size:12px;display:flex;align-items:center;gap:6px"
+                onclick="exportFilteredSet()">
+                📥 Download CSV
+            </button>
         </div>
 
         <div id="table-container"></div>
