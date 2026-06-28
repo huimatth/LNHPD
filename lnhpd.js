@@ -37,10 +37,19 @@ function v(val) {
 // ── Fetch helpers ───────────────────────────────────────────────────────────
 const BASE = 'https://health-products.canada.ca/api/natural-licences';
 
-async function fetchData(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
-    return res.json();
+async function fetchData(url, retries = 3) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const res  = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = await res.text();
+            if (!text || !text.trim()) throw new Error('Empty response');
+            return JSON.parse(text);
+        } catch (err) {
+            if (attempt === retries) throw err;
+            await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+        }
+    }
 }
 
 async function fetchIngredients(lnhpdId) {
@@ -293,9 +302,7 @@ async function applyFilters() {
         // each product's ingredients individually and match locally.
         if (ingredient) {
             const toSearch  = [...matchingIds];
-            const CAP       = 600;
-            const searching = toSearch.slice(0, CAP);
-            const needFetch = searching.filter(id => ingredientCache[id] === undefined);
+            const needFetch = toSearch.filter(id => ingredientCache[id] === undefined);
 
             if (needFetch.length > 0) {
                 const CONCURRENCY = 30;
@@ -304,16 +311,15 @@ async function applyFilters() {
                     await Promise.all(needFetch.slice(i, i + CONCURRENCY).map(id => fetchIngredients(id)));
                     done += Math.min(CONCURRENCY, needFetch.length - i);
                     showLoading(
-                        `Searching ingredients in ${searching.length.toLocaleString()} products…`,
+                        `Searching ingredients in ${toSearch.length.toLocaleString()} products…`,
                         `${done.toLocaleString()} of ${needFetch.length.toLocaleString()} fetched`
                     );
                 }
             }
 
-            const matched = new Set(
-                searching.filter(id => (ingredientCache[id] || []).some(name => name.includes(ingredient)))
+            matchingIds = new Set(
+                toSearch.filter(id => (ingredientCache[id] || []).some(name => name.includes(ingredient)))
             );
-            matchingIds = matched;
         }
 
         // Step 4: Status filter — enrich up to 500 unenriched products then apply
@@ -377,9 +383,9 @@ function clearPill(field) {
 
 // ── Interactive filter controls ───────────────────────────────────────────────
 function setRouteFilter(value) {
-    routeFilter = value;
+    routeFilter = (routeFilter === value) ? '' : value;
     const sel = document.getElementById('routeFilter');
-    if (sel) sel.value = value;
+    if (sel) sel.value = routeFilter;
     updateQuickChips();
     applyFilters();
 }
@@ -471,12 +477,13 @@ function getSortedIds() {
             ? [...filteredIds].sort((a, b) => b - a)
             : [...filteredIds].sort((a, b) => a - b);
     }
+    const getSortVal = (id) => {
+        if (enrichedCache[id]) return enrichedCache[id][sortKey] || '';
+        if (sortKey === 'route_type_desc') return routeIdMap[id] || '';
+        return licenceNumberMap[id]?.[sortKey] || '';
+    };
     return [...filteredIds].sort((a, b) => {
-        const ea  = enrichedCache[a];
-        const eb  = enrichedCache[b];
-        const va  = ea ? (ea[sortKey] || '') : '';
-        const vb  = eb ? (eb[sortKey] || '') : '';
-        const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
+        const cmp = String(getSortVal(a)).localeCompare(String(getSortVal(b)), undefined, { numeric: true });
         return sortDir === 'asc' ? cmp : -cmp;
     });
 }
@@ -532,23 +539,27 @@ function renderStats() {
         statPct.textContent = (filteredCount === windowCount) ? 'all in window' : `${pct}% of window`;
     }
 
-    // Route breakdown
-    const routeCounts = {};
-    filteredIds.forEach(id => {
+    // Route breakdown — always drawn from the full date window so the chart stays
+    // stable regardless of which route filter is active. Selected route is highlighted.
+    const windowRoutes = {};
+    getDateWindowIds().forEach(id => {
         const r = routeIdMap[id] || 'Unknown';
-        routeCounts[r] = (routeCounts[r] || 0) + 1;
+        windowRoutes[r] = (windowRoutes[r] || 0) + 1;
     });
-    const topRoutes = Object.entries(routeCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const topRoutes = Object.entries(windowRoutes).sort((a, b) => b[1] - a[1]).slice(0, 6);
     const maxCount  = topRoutes[0]?.[1] || 1;
     const routeList = document.getElementById('statRouteList');
     if (routeList) {
         routeList.innerHTML = topRoutes.length
-            ? topRoutes.map(([name, count]) =>
-                `<div class="route-row" onclick="setRouteFilter(${JSON.stringify(name)})" title="Filter by ${escHtml(name)}" style="cursor:pointer">
+            ? topRoutes.map(([name, count]) => {
+                const selected = name === routeFilter;
+                const tip = selected ? `Clear route filter` : `Filter by ${escHtml(name)}`;
+                return `<div class="route-row${selected ? ' route-row-selected' : ''}" onclick="setRouteFilter(${JSON.stringify(name)})" title="${tip}" style="cursor:pointer">
                     <span class="route-name" title="${escHtml(name)}">${escHtml(name)}</span>
                     <div class="route-bar-track"><div class="route-bar-fill" style="width:${Math.round(count / maxCount * 100)}%"></div></div>
                     <span class="route-count">${count.toLocaleString()}</span>
-                </div>`).join('')
+                </div>`;
+              }).join('')
             : '<div class="stat-empty">No data</div>';
     }
 
@@ -564,17 +575,45 @@ function renderStats() {
     });
     const statStatus = document.getElementById('statStatus');
     if (statStatus) {
-        if (enrichedTotal > 0) {
-            statStatus.innerHTML =
-                `<div class="status-pill active-pill" onclick="setStatusFilter('Active')" title="Filter: Active only">`+
-                `<span class="dot dot-green"></span>${activeCount.toLocaleString()} active</div>` +
-                `<div class="status-pill inactive-pill" onclick="setStatusFilter('Inactive')" title="Filter: Inactive only">`+
-                `<span class="dot dot-red"></span>${inactiveCount.toLocaleString()} inactive</div>` +
-                `<div class="status-note">of ${enrichedTotal.toLocaleString()} loaded</div>`;
-        } else {
-            statStatus.innerHTML = '<div class="status-note">Load products to see status</div>';
-        }
+        const unloaded   = filteredIds.length - enrichedTotal;
+        const loadingAll = _loadingAll;
+        const btnLabel   = unloaded > 0
+            ? `Load ${unloaded.toLocaleString()} more`
+            : `Reload all ${filteredIds.length.toLocaleString()}`;
+        const pillsHtml  = enrichedTotal > 0
+            ? `<div class="status-pill active-pill" onclick="setStatusFilter('Active')" title="Filter: Active only">` +
+              `<span class="dot dot-green"></span>${activeCount.toLocaleString()} active</div>` +
+              `<div class="status-pill inactive-pill" onclick="setStatusFilter('Inactive')" title="Filter: Inactive only">` +
+              `<span class="dot dot-red"></span>${inactiveCount.toLocaleString()} inactive</div>` +
+              `<div class="status-note">of ${enrichedTotal.toLocaleString()} loaded</div>`
+            : `<div class="status-note">No records loaded yet</div>`;
+        statStatus.innerHTML = pillsHtml +
+            `<button id="loadAllBtn" class="load-all-btn" onclick="loadAllFiltered()"${loadingAll ? ' disabled' : ''}>` +
+            `${btnLabel}</button>`;
     }
+}
+
+let _loadingAll = false;
+async function loadAllFiltered() {
+    if (_loadingAll) return;
+    _loadingAll = true;
+    const btn = document.getElementById('loadAllBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+    const toFetch = filteredIds.filter(id => !enrichedCache[id]);
+    const CONCURRENCY = 30;
+    let done = 0;
+
+    for (let i = 0; i < toFetch.length; i += CONCURRENCY) {
+        await Promise.all(toFetch.slice(i, i + CONCURRENCY).map(id => fetchLicence(id)));
+        done += Math.min(CONCURRENCY, toFetch.length - i);
+        const b = document.getElementById('loadAllBtn');
+        if (b) b.textContent = `Loading… ${done.toLocaleString()} / ${toFetch.length.toLocaleString()}`;
+    }
+
+    _loadingAll = false;
+    renderStats();
+    renderTable();
 }
 
 function renderTable() {

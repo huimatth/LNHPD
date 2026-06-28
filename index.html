@@ -397,6 +397,9 @@
             transition: background .1s;
         }
         .route-row:hover { background: var(--teal-light); }
+        .route-row-selected { background: var(--teal-light); font-weight: 600; }
+        .route-row-selected .route-name { color: var(--teal); }
+        .route-row-selected .route-bar-fill { background: var(--teal-dark, #0a6670); }
         .route-name {
             flex: 0 0 82px;
             color: var(--grey-500);
@@ -446,6 +449,21 @@
             transition: background .1s;
         }
         .status-pill:hover { background: var(--grey-50); }
+        .load-all-btn {
+            margin-top: 6px;
+            width: 100%;
+            padding: 5px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--teal);
+            background: var(--teal-light);
+            border: 1px solid var(--teal);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background .15s, color .15s;
+        }
+        .load-all-btn:hover { background: var(--teal); color: #fff; }
+        .load-all-btn:disabled { opacity: .5; cursor: not-allowed; }
         .active-pill   { color: var(--green); }
         .inactive-pill { color: var(--danger); }
         .dot {
